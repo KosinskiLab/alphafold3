@@ -92,6 +92,23 @@ def _read_file(path: pathlib.Path, json_path: pathlib.Path | None) -> str:
       return f.read().decode('utf-8')
 
 
+def _normalize_residue_ids(
+    residue_ids: Sequence[int] | None,
+    *,
+    sequence_length: int,
+    polymer_name: str,
+) -> tuple[int, ...] | None:
+  """Normalizes optional per-residue IDs for a polymer chain."""
+  if residue_ids is None:
+    return None
+  if len(residue_ids) != sequence_length:
+    raise ValueError(
+        f'{polymer_name} residue IDs must have length {sequence_length}, got'
+        f' {len(residue_ids)}.'
+    )
+  return tuple(int(residue_id) for residue_id in residue_ids)
+
+
 class Template:
   """Structural template input."""
 
@@ -138,6 +155,7 @@ class ProteinChain:
       '_id',
       '_sequence',
       '_ptms',
+      '_residue_ids',
       '_description',
       '_paired_msa',
       '_unpaired_msa',
@@ -150,6 +168,7 @@ class ProteinChain:
       id: str,  # pylint: disable=redefined-builtin
       sequence: str,
       ptms: Sequence[tuple[str, int]],
+      residue_ids: Sequence[int] | None = None,
       description: str | None = None,
       paired_msa: str | None = None,
       unpaired_msa: str | None = None,
@@ -162,6 +181,9 @@ class ProteinChain:
       sequence: The amino acid sequence of the chain.
       ptms: A list of tuples containing the post-translational modification type
         and the (1-based) residue index where the modification is applied.
+      residue_ids: Optional per-residue numbering for the chain. When set, the
+        n-th value is used as the residue ID for the n-th residue in the
+        sequence instead of renumbering residues consecutively from 1.
       description: An optional textual description of the protein chain.
       paired_msa: Paired A3M-formatted MSA for this chain. This MSA is not
         deduplicated and will be used to compute paired features. If None, this
@@ -189,6 +211,11 @@ class ProteinChain:
     self._id = id
     self._sequence = sequence
     self._ptms = tuple(ptms)
+    self._residue_ids = _normalize_residue_ids(
+        residue_ids,
+        sequence_length=len(sequence),
+        polymer_name='Protein',
+    )
     self._description = description
     self._paired_msa = paired_msa
     self._unpaired_msa = unpaired_msa
@@ -212,6 +239,10 @@ class ProteinChain:
   @property
   def ptms(self) -> Sequence[tuple[str, int]]:
     return self._ptms
+
+  @property
+  def residue_ids(self) -> Sequence[int] | None:
+    return self._residue_ids
 
   @property
   def description(self) -> str | None:
@@ -239,6 +270,7 @@ class ProteinChain:
         self._id == other._id
         and self._sequence == other._sequence
         and self._ptms == other._ptms
+        and self._residue_ids == other._residue_ids
         and self._description == other._description
         and self._paired_msa == other._paired_msa
         and self._unpaired_msa == other._unpaired_msa
@@ -250,6 +282,7 @@ class ProteinChain:
         self._id,
         self._sequence,
         self._ptms,
+        self._residue_ids,
         self._description,
         self._paired_msa,
         self._unpaired_msa,
@@ -261,6 +294,7 @@ class ProteinChain:
     return hash((
         self._sequence,
         self._ptms,
+        self._residue_ids,
         self._description,
         self._paired_msa,
         self._unpaired_msa,
@@ -322,6 +356,7 @@ class ProteinChain:
             'id',
             'sequence',
             'modifications',
+            'residueIds',
             'description',
             'unpairedMsa',
             'unpairedMsaPath',
@@ -336,6 +371,7 @@ class ProteinChain:
         (mod['ptmType'], mod['ptmPosition'])
         for mod in json_dict.get('modifications', [])
     ]
+    residue_ids = json_dict.get('residueIds', None)
 
     unpaired_msa = json_dict.get('unpairedMsa', None)
     unpaired_msa_path = json_dict.get('unpairedMsaPath', None)
@@ -393,6 +429,7 @@ class ProteinChain:
         id=seq_id or json_dict['id'],
         sequence=sequence,
         ptms=ptms,
+        residue_ids=residue_ids,
         description=json_dict.get('description', None),
         paired_msa=paired_msa,
         unpaired_msa=unpaired_msa,
@@ -426,6 +463,8 @@ class ProteinChain:
         'pairedMsa': self._paired_msa,
         'templates': templates,
     }
+    if self._residue_ids is not None:
+      contents['residueIds'] = list(self._residue_ids)
     if self._description is not None:
       contents['description'] = self._description
     return {'protein': contents}
@@ -446,6 +485,7 @@ class ProteinChain:
         id=self.id,
         sequence=self._sequence,
         ptms=self._ptms,
+        residue_ids=self._residue_ids,
         description=self._description,
         unpaired_msa=self._unpaired_msa or '',
         paired_msa=self._paired_msa or '',
@@ -460,6 +500,7 @@ class RnaChain:
       '_id',
       '_sequence',
       '_modifications',
+      '_residue_ids',
       '_description',
       '_unpaired_msa',
   )
@@ -470,6 +511,7 @@ class RnaChain:
       id: str,  # pylint: disable=redefined-builtin
       sequence: str,
       modifications: Sequence[tuple[str, int]],
+      residue_ids: Sequence[int] | None = None,
       description: str | None = None,
       unpaired_msa: str | None = None,
   ):
@@ -480,6 +522,7 @@ class RnaChain:
       sequence: The RNA sequence of the chain.
       modifications: A list of tuples containing the modification type and the
         (1-based) residue index where the modification is applied.
+      residue_ids: Optional per-residue numbering for the chain.
       description: An optional textual description of the RNA chain.
       unpaired_msa: Unpaired A3M-formatted MSA for this chain. This will be
         deduplicated and used to compute unpaired features. If None, this field
@@ -500,6 +543,11 @@ class RnaChain:
     self._sequence = sequence
     # Use hashable container for modifications.
     self._modifications = tuple(modifications)
+    self._residue_ids = _normalize_residue_ids(
+        residue_ids,
+        sequence_length=len(sequence),
+        polymer_name='RNA',
+    )
     self._description = description
     self._unpaired_msa = unpaired_msa
 
@@ -523,6 +571,10 @@ class RnaChain:
     return self._modifications
 
   @property
+  def residue_ids(self) -> Sequence[int] | None:
+    return self._residue_ids
+
+  @property
   def description(self) -> str | None:
     return self._description
 
@@ -540,6 +592,7 @@ class RnaChain:
         self._id == other._id
         and self._sequence == other._sequence
         and self._modifications == other._modifications
+        and self._residue_ids == other._residue_ids
         and self._description == other._description
         and self._unpaired_msa == other._unpaired_msa
     )
@@ -549,6 +602,7 @@ class RnaChain:
         self._id,
         self._sequence,
         self._modifications,
+        self._residue_ids,
         self._description,
         self._unpaired_msa,
     ))
@@ -558,6 +612,7 @@ class RnaChain:
     return hash((
         self._sequence,
         self._modifications,
+        self._residue_ids,
         self._description,
         self._unpaired_msa,
     ))
@@ -590,12 +645,14 @@ class RnaChain:
             'id',
             'sequence',
             'modifications',
+            'residueIds',
             'description',
             'unpairedMsa',
             'unpairedMsaPath',
         },
     )
     sequence = json_dict['sequence']
+    residue_ids = json_dict.get('residueIds', None)
     modifications = [
         (mod['modificationType'], mod['basePosition'])
         for mod in json_dict.get('modifications', [])
@@ -620,6 +677,7 @@ class RnaChain:
         id=seq_id or json_dict['id'],
         sequence=sequence,
         modifications=modifications,
+        residue_ids=residue_ids,
         description=json_dict.get('description', None),
         unpaired_msa=unpaired_msa,
     )
@@ -637,6 +695,8 @@ class RnaChain:
         ],
         'unpairedMsa': self._unpaired_msa,
     }
+    if self._residue_ids is not None:
+      contents['residueIds'] = list(self._residue_ids)
     if self._description is not None:
       contents['description'] = self._description
     return {'rna': contents}
@@ -657,6 +717,7 @@ class RnaChain:
         id=self.id,
         sequence=self.sequence,
         modifications=self.modifications,
+        residue_ids=self._residue_ids,
         description=self.description,
         unpaired_msa=self._unpaired_msa or '',
     )
@@ -665,7 +726,13 @@ class RnaChain:
 class DnaChain:
   """Single strand DNA chain input."""
 
-  __slots__ = ('_id', '_sequence', '_modifications', '_description')
+  __slots__ = (
+      '_id',
+      '_sequence',
+      '_modifications',
+      '_residue_ids',
+      '_description',
+  )
 
   def __init__(
       self,
@@ -673,6 +740,7 @@ class DnaChain:
       id: str,  # pylint: disable=redefined-builtin
       sequence: str,
       modifications: Sequence[tuple[str, int]],
+      residue_ids: Sequence[int] | None = None,
       description: str | None = None,
   ):
     """Initializes a single strand DNA chain input.
@@ -682,6 +750,7 @@ class DnaChain:
       sequence: The DNA sequence of the chain.
       modifications: A list of tuples containing the modification type and the
         (1-based) residue index where the modification is applied.
+      residue_ids: Optional per-residue numbering for the chain.
       description: An optional textual description of the DNA chain.
     """
     if not all(res.isalpha() for res in sequence):
@@ -697,6 +766,11 @@ class DnaChain:
     self._sequence = sequence
     # Use hashable container for modifications.
     self._modifications = tuple(modifications)
+    self._residue_ids = _normalize_residue_ids(
+        residue_ids,
+        sequence_length=len(sequence),
+        polymer_name='DNA',
+    )
     self._description = description
 
   @property
@@ -718,6 +792,10 @@ class DnaChain:
   def description(self) -> str | None:
     return self._description
 
+  @property
+  def residue_ids(self) -> Sequence[int] | None:
+    return self._residue_ids
+
   def __len__(self) -> int:
     return len(self._sequence)
 
@@ -728,12 +806,19 @@ class DnaChain:
         self._id == other._id
         and self._sequence == other._sequence
         and self._modifications == other._modifications
+        and self._residue_ids == other._residue_ids
         and self._description == other._description
     )
 
   def __hash__(self) -> int:
     return hash(
-        (self._id, self._sequence, self._modifications, self._description)
+        (
+            self._id,
+            self._sequence,
+            self._modifications,
+            self._residue_ids,
+            self._description,
+        )
     )
 
   def modifications(self) -> Sequence[tuple[str, int]]:
@@ -741,7 +826,12 @@ class DnaChain:
 
   def hash_without_id(self) -> int:
     """Returns a hash ignoring the ID - useful for deduplication."""
-    return hash((self._sequence, self._modifications, self._description))
+    return hash((
+        self._sequence,
+        self._modifications,
+        self._residue_ids,
+        self._description,
+    ))
 
   @classmethod
   def from_alphafoldserver_dict(
@@ -763,9 +853,11 @@ class DnaChain:
     """Constructs DnaChain from the AlphaFold JSON dict."""
     json_dict = json_dict['dna']
     _validate_keys(
-        json_dict.keys(), {'id', 'sequence', 'modifications', 'description'}
+        json_dict.keys(),
+        {'id', 'sequence', 'modifications', 'residueIds', 'description'},
     )
     sequence = json_dict['sequence']
+    residue_ids = json_dict.get('residueIds', None)
     modifications = [
         (mod['modificationType'], mod['basePosition'])
         for mod in json_dict.get('modifications', [])
@@ -774,6 +866,7 @@ class DnaChain:
         id=seq_id or json_dict['id'],
         sequence=sequence,
         modifications=modifications,
+        residue_ids=residue_ids,
         description=json_dict.get('description', None),
     )
 
@@ -789,6 +882,8 @@ class DnaChain:
             for mod in self._modifications
         ],
     }
+    if self._residue_ids is not None:
+      contents['residueIds'] = list(self._residue_ids)
     if self._description is not None:
       contents['description'] = self._description
     return {'dna': contents}
@@ -1427,6 +1522,15 @@ class Input:
             formats.append(structure.SequenceFormat.LIGAND_SMILES)
           else:
             raise ValueError('Ligand must have one of CCD ID or SMILES set.')
+    residue_ids = [
+        (
+            list(chain.residue_ids)
+            if isinstance(chain, (ProteinChain, RnaChain, DnaChain))
+            and chain.residue_ids is not None
+            else None
+        )
+        for chain in self.chains
+    ]
 
     # Remap bond chain IDs from chain IDs to chain indices and convert to
     # 0-based residue indexing.
@@ -1444,6 +1548,7 @@ class Input:
         chain_types=poly_types,
         sequence_formats=formats,
         chain_ids=ids,
+        residue_ids=residue_ids,
         bonded_atom_pairs=bonded_atom_pairs,
         ccd=ccd,
         name=self.sanitised_name(),
