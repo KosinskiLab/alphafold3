@@ -773,7 +773,6 @@ def tables_from_atom_arrays(
   else:
     insertion_code = np.full(shape=len(res_ids), fill_value='?', dtype=object)
 
-  res_key_by_res = {res: i for i, res in enumerate(residue_order)}
   res_keys = np.arange(len(residue_order), dtype=np.int64)
   res_chain_keys = string_array.remap(
       res_chain_ids, chain_key_by_chain_id
@@ -794,15 +793,57 @@ def tables_from_atom_arrays(
       np.int64
   )
 
-  try:
-    atom_res_keys = [res_key_by_res[r] for r in zip(chain_id, res_name, res_id)]
-  except KeyError as e:
-    missing_chain_id, missing_res_name, missing_res_id = e.args[0]
-    raise ValueError(
-        'Inconsistent res_name, res_id and all_residues. Could not find '
-        f'residue with chain_id={missing_chain_id}, '
-        f'res_name={missing_res_name}, res_id={missing_res_id} in all_residues.'
-    ) from e
+  if all_residues is not None:
+    # `all_residues` may intentionally contain duplicate (chain_id, res_name,
+    # res_id) tuples when discontinuous regions are concatenated with preserved
+    # original numbering. In that case, a dictionary lookup would collapse all
+    # duplicates onto the final occurrence. Instead, match present residues
+    # against `all_residues` in their original order.
+    atom_res_start = np.concatenate(
+        (
+            [0],
+            np.where(
+                (chain_id[1:] != chain_id[:-1])
+                | (res_id[1:] != res_id[:-1])
+                | (res_name[1:] != res_name[:-1])
+            )[0]
+            + 1,
+        )
+    )
+    atom_res_end = np.concatenate((atom_res_start[1:], [num_atoms]))
+    atom_res_keys = np.empty(num_atoms, dtype=np.int64)
+    residue_order_index = 0
+    for start, end in zip(atom_res_start, atom_res_end, strict=True):
+      atom_residue = (
+          chain_id[start],
+          res_name[start],
+          int(res_id[start]),
+      )
+      while (
+          residue_order_index < len(residue_order)
+          and residue_order[residue_order_index] != atom_residue
+      ):
+        residue_order_index += 1
+      if residue_order_index == len(residue_order):
+        missing_chain_id, missing_res_name, missing_res_id = atom_residue
+        raise ValueError(
+            'Inconsistent res_name, res_id and all_residues. Could not find '
+            f'residue with chain_id={missing_chain_id}, '
+            f'res_name={missing_res_name}, res_id={missing_res_id} in all_residues.'
+        )
+      atom_res_keys[start:end] = residue_order_index
+      residue_order_index += 1
+  else:
+    res_key_by_res = {res: i for i, res in enumerate(residue_order)}
+    try:
+      atom_res_keys = [res_key_by_res[r] for r in zip(chain_id, res_name, res_id)]
+    except KeyError as e:
+      missing_chain_id, missing_res_name, missing_res_id = e.args[0]
+      raise ValueError(
+          'Inconsistent res_name, res_id and all_residues. Could not find '
+          f'residue with chain_id={missing_chain_id}, '
+          f'res_name={missing_res_name}, res_id={missing_res_id} in all_residues.'
+      ) from e
 
   atoms = Atoms(
       key=atom_key,
