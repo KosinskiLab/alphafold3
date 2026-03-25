@@ -630,6 +630,7 @@ def from_sequences_and_bonds(
     sequences: Sequence[str],
     chain_types: Sequence[str],
     sequence_formats: Sequence[SequenceFormat],
+    residue_ids: Sequence[Sequence[int] | None] | None,
     bonded_atom_pairs: Sequence[tuple[BondAtomId, BondAtomId]] | None,
     ccd: chemical_components.Ccd,
     chain_ids: Sequence[str] | None = None,
@@ -650,6 +651,9 @@ def from_sequences_and_bonds(
       describes the n-th sequence in `sequences`.
     sequence_formats: The format of each sequence. The n-th element describes
       the n-th sequence in `sequences`.
+    residue_ids: Optional per-chain residue IDs. When provided, the n-th
+      element defines the residue numbering used for the n-th chain instead of
+      renumbering residues consecutively from 1.
     bonded_atom_pairs: A sequence of bonded atom pairs. Each atom is described
       as a tuple of (chain_index, res_index, atom_name), where the first two
       values are 0-based indices. The chain_index is the index of the chain in
@@ -690,15 +694,28 @@ def from_sequences_and_bonds(
   for chain_i, (sequence, curr_chain_type, sequence_format) in enumerate(
       zip(sequences, chain_types, sequence_formats, strict=True)
   ):
+    expanded_sequence = expand_sequence(sequence, curr_chain_type, sequence_format)
+    chain_residue_ids = None if residue_ids is None else residue_ids[chain_i]
+    if chain_residue_ids is not None:
+      if len(chain_residue_ids) != len(expanded_sequence):
+        raise ValueError(
+            'Residue IDs for chain '
+            f'{chain_ids[chain_i] if chain_ids is not None else chain_i + 1} '
+            f'must have length {len(expanded_sequence)}, got'
+            f' {len(chain_residue_ids)}.'
+        )
+      chain_residue_ids = tuple(int(res_id) for res_id in chain_residue_ids)
     if chain_ids is not None:
       current_chain_id = chain_ids[chain_i]
     else:
       current_chain_id = mmcif.int_id_to_str_id(chain_i + 1)
     num_chain_residues = 0
-    for res_i, full_res_name in enumerate(
-        expand_sequence(sequence, curr_chain_type, sequence_format)
-    ):
-      current_res_id = res_i + 1
+    for res_i, full_res_name in enumerate(expanded_sequence):
+      current_res_id = (
+          chain_residue_ids[res_i]
+          if chain_residue_ids is not None
+          else res_i + 1
+      )
       num_res_atoms = 0
 
       # Look for bonded atoms in the bond lookup and if any are found, add
