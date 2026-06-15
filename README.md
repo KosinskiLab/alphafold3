@@ -3,9 +3,10 @@
 # AlphaFold 3
 
 This package provides an implementation of the inference pipeline of AlphaFold
-3. See below for how to access the model parameters. You may only use AlphaFold
-3 model parameters if received directly from Google. Use is subject to these
-[terms of use](https://github.com/google-deepmind/alphafold3/blob/main/WEIGHTS_TERMS_OF_USE.md).
+
+1.  See below for how to access the model parameters. You may only use AlphaFold
+    3 model parameters if received directly from Google. Use is subject to these
+    [terms of use](https://github.com/google-deepmind/alphafold3/blob/main/WEIGHTS_TERMS_OF_USE.md).
 
 Any publication that discloses findings arising from using this source code, the
 model parameters or outputs produced by those should [cite](#citing-this-work)
@@ -145,15 +146,12 @@ AlphaFold 3 uses the following separate libraries and packages:
 *   [HMMER Suite](https://github.com/EddyRivasLab/hmmer)
 *   [Haiku](https://github.com/deepmind/dm-haiku)
 *   [JAX](https://github.com/jax-ml/jax/)
-*   [jax-triton](https://github.com/jax-ml/jax-triton)
-*   [jaxtyping](https://github.com/patrick-kidger/jaxtyping)
 *   [libcifpp](https://github.com/pdb-redo/libcifpp)
 *   [NumPy](https://github.com/numpy/numpy)
 *   [pybind11](https://github.com/pybind/pybind11) and
     [pybind11_abseil](https://github.com/pybind/pybind11_abseil)
 *   [RDKit](https://github.com/rdkit/rdkit)
-*   [Tree](https://github.com/deepmind/tree)
-*   [Triton](https://github.com/triton-lang/triton)
+*   [Tokamax](https://github.com/openxla/tokamax)
 *   [tqdm](https://github.com/tqdm/tqdm)
 
 We thank all their contributors and maintainers!
@@ -175,11 +173,10 @@ Copyright 2024 DeepMind Technologies Limited.
 
 ### AlphaFold 3 Source Code and Model Parameters
 
-The AlphaFold 3 source code is licensed under the Creative Commons
-Attribution-Non-Commercial ShareAlike International License, Version 4.0
-(CC-BY-NC-SA 4.0) (the "License"); you may not use this file except in
-compliance with the License. You may obtain a copy of the License at
-[https://github.com/google-deepmind/alphafold3/blob/main/LICENSE](https://github.com/google-deepmind/alphafold3/blob/main/LICENSE).
+AlphaFold 3 source code is licensed under the Apache License, Version 2.0 (the
+"License"); you may not use its source code except in compliance with the
+License. You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0.
 
 The AlphaFold 3 model parameters are made available under the
 [AlphaFold 3 Model Parameters Terms of Use](https://github.com/google-deepmind/alphafold3/blob/main/WEIGHTS_TERMS_OF_USE.md)

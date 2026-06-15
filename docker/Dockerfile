@@ -1,7 +1,16 @@
 # Copyright 2024 DeepMind Technologies Limited
 #
-# AlphaFold 3 source code is licensed under CC BY-NC-SA 4.0. To view a copy of
-# this license, visit https://creativecommons.org/licenses/by-nc-sa/4.0/
+# AlphaFold 3 source code is licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with the
+# License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # To request access to the AlphaFold 3 model parameters, follow the process set
 # out at https://github.com/google-deepmind/alphafold3. You may only use these
@@ -16,17 +25,21 @@ FROM nvidia/cuda:12.6.3-base-ubuntu24.04
 # * gcc, g++, make are required for compiling HMMER and AlphaFold 3 libaries.
 # * zlib is a required dependency of AlphaFold 3.
 RUN DEBIAN_FRONTEND=noninteractive \
-    apt-get update --quiet \
-    && apt-get install --yes --quiet python3.12 python3-pip python3.12-venv python3.12-dev \
-    && apt-get install --yes --quiet git wget gcc g++ make zlib1g-dev zstd
+apt-get update --quiet \
+&& apt-get install --yes --quiet python3.12 python3.12-dev \
+&& apt-get install --yes --quiet git wget gcc g++ make zlib1g-dev zstd
 
-# The base image uses Python 3.12. For local installation use 3.11 or greater.
-RUN python3 -m venv /alphafold3_venv
+# Install uv from the official repository. The version is pinned for
+# reproducibility.
+COPY --from=ghcr.io/astral-sh/uv:0.9.24 /uv /uvx /bin/
+
+# UV_COMPILE_BYTECODE=1 speeds up future container starts.
+# UV_PROJECT_ENVIRONMENT explicitly sets the virtual environment location.
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_PROJECT_ENVIRONMENT=/alphafold3_venv
+RUN uv venv $UV_PROJECT_ENVIRONMENT
+
 ENV PATH="/hmmer/bin:/alphafold3_venv/bin:$PATH"
-# Update pip to the latest version. Not necessary in Docker, but good to do when
-# this is used as a recipe for local installation since we rely on new pip
-# features for secure installs.
-RUN pip3 install --no-cache-dir --upgrade pip
 
 # Install HMMER. Do so before copying the source code, so that docker can cache
 # the image layer containing HMMER. Alternatively, you could also install it
@@ -47,10 +60,10 @@ COPY docker/jackhmmer_seq_limit.patch /hmmer_build/
 RUN (cd /hmmer_build && patch -p0 < jackhmmer_seq_limit.patch)
 
 # Build HMMER.
-RUN (cd /hmmer_build/hmmer-3.4 && ./configure --prefix /hmmer) ; \
-    (cd /hmmer_build/hmmer-3.4 && make -j) ; \
-    (cd /hmmer_build/hmmer-3.4 && make install) ; \
-    (cd /hmmer_build/hmmer-3.4/easel && make install) ; \
+RUN (cd /hmmer_build/hmmer-3.4 && ./configure --prefix /hmmer) && \
+    (cd /hmmer_build/hmmer-3.4 && make -j) && \
+    (cd /hmmer_build/hmmer-3.4 && make install) && \
+    (cd /hmmer_build/hmmer-3.4/easel && make install) && \
     rm -R /hmmer_build
 
 # Copy the AlphaFold 3 source code from the local machine to the container and
@@ -58,13 +71,17 @@ RUN (cd /hmmer_build/hmmer-3.4 && ./configure --prefix /hmmer) ; \
 COPY . /app/alphafold
 WORKDIR /app/alphafold
 
-# Install setuptools (removed in Python 3.12) which some libraries still need.
-# Then install the Python dependencies of AlphaFold 3.
-RUN pip3 install --no-cache-dir setuptools \
-    && pip3 install --no-cache-dir -r dev-requirements.txt \
-    && pip3 install --no-cache-dir --no-deps .
-# Build chemical components database (this binary was installed by pip).
-RUN build_data
+# Install the exact dependency tree using uv and cache the build artifacts.
+# --frozen: do not update the lockfile during build.
+# --all-groups: install development/test dependencies defined in pyproject.toml.
+# --no-editable: install as a static package.
+# If using this as a recipe for local installation, we recommend removing the
+# --frozen and --no-editable flags.
+RUN --mount=type=cache,target=/root/.cache/uv \ 
+    UV_LINK_MODE=copy uv sync --frozen --all-groups --no-editable
+
+# Build chemical components database (this binary was installed by uv sync).
+RUN uv run build_data
 
 # To work around a known XLA issue causing the compilation time to greatly
 # increase, the following environment variable setting XLA flags must be enabled
@@ -77,4 +94,4 @@ ENV XLA_FLAGS="--xla_gpu_enable_triton_gemm=false"
 ENV XLA_PYTHON_CLIENT_PREALLOCATE=true
 ENV XLA_CLIENT_MEM_FRACTION=0.95
 
-CMD ["python3", "run_alphafold.py"]
+CMD ["uv", "run", "python3", "run_alphafold.py"]

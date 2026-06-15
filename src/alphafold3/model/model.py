@@ -1,7 +1,16 @@
 # Copyright 2024 DeepMind Technologies Limited
 #
-# AlphaFold 3 source code is licensed under CC BY-NC-SA 4.0. To view a copy of
-# this license, visit https://creativecommons.org/licenses/by-nc-sa/4.0/
+# AlphaFold 3 source code is licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with the
+# License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # To request access to the AlphaFold 3 model parameters, follow the process set
 # out at https://github.com/google-deepmind/alphafold3. You may only use these
@@ -39,10 +48,9 @@ import numpy as np
 
 
 ModelResult: TypeAlias = Mapping[str, Any]
-_ScalarNumberOrArray: TypeAlias = Mapping[str, float | int | np.ndarray]
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class InferenceResult:
   """Postprocessed model result.
 
@@ -58,8 +66,12 @@ class InferenceResult:
   """
 
   predicted_structure: structure.Structure = dataclasses.field()
-  numerical_data: _ScalarNumberOrArray = dataclasses.field(default_factory=dict)
-  metadata: _ScalarNumberOrArray = dataclasses.field(default_factory=dict)
+  numerical_data: Mapping[str, float | int | np.ndarray] = dataclasses.field(
+      default_factory=dict
+  )
+  metadata: Mapping[str, float | int | np.ndarray] = dataclasses.field(
+      default_factory=dict
+  )
   debug_outputs: Mapping[str, Any] = dataclasses.field(default_factory=dict)
   model_id: bytes = b''
 
@@ -464,9 +476,8 @@ class Model(hk.Module):
     # Computing solvent accessible area with dssp can be slow for large
     # structures with lots of chains, so we parallelize the call.
     pred_structures = pred_structure.unstack()
-    num_workers = len(pred_structures)
     with concurrent.futures.ThreadPoolExecutor(
-        max_workers=num_workers
+        max_workers=min(len(pred_structures), 32)
     ) as executor:
       has_clash = list(executor.map(confidences.has_clash, pred_structures))
       fraction_disordered = list(
