@@ -114,6 +114,8 @@
     "bfloat16": "all",
     "final_init": "zeros",
     "flash_attention_implementation": "triton",
+    "fused_triangle_compute_capability": "",
+    "fused_triangle_memory_gib": 0.0,
     "pair_attention_chunk_size": [
       [
         1536,
@@ -133,7 +135,9 @@
         null,
         1024
       ]
-    ]
+    ],
+    "triangle_attention_implementation": "default",
+    "triangle_multiplication_implementation": "default"
   },
   "heads": {
     "confidence": {

@@ -23,16 +23,16 @@ def parse_absl_flags():
 def config(on=True, cc='9.0', memory=76, attention='auto'):
     return model_config.GlobalConfig(
         final_init='linear', flash_attention_implementation='xla',
-        fused_triangle_multiplication=on,
-        fused_triangle_attention=attention if on else 'off',
+        triangle_multiplication_implementation='pallas' if on else 'default',
+        triangle_attention_implementation=attention if on else 'default',
         fused_triangle_compute_capability=cc, fused_triangle_memory_gib=memory)
 
 
 @pytest.mark.parametrize('cc,memory,tiles,backend,limit', [
     ('8.0', 38, '8.0', 'pallas', 2048),
-    ('8.6', 22, 'safe', 'tokamax', 1536),
-    ('8.6', 45, 'safe', 'tokamax', 2048),
-    ('8.9', 45, 'safe', 'tokamax', 2048),
+    ('8.6', 22, 'safe', 'pallas_tokamax_core', 1536),
+    ('8.6', 45, 'safe', 'pallas_tokamax_core', 2048),
+    ('8.9', 45, 'safe', 'pallas_tokamax_core', 2048),
     ('9.0', 76, '9.0', 'pallas', 3072),
     ('12.0', 91, '9.0', 'pallas', 3072),
     ('12.0', 15, '9.0', 'pallas', 768),
@@ -68,7 +68,7 @@ def test_off_imports_no_fused_package():
 import sys
 from alphafold3.model.network import modules
 from alphafold3.model import model_config
-assert model_config.GlobalConfig().fused_triangle_attention == 'off'
+assert model_config.GlobalConfig().triangle_attention_implementation == 'default'
 assert not any(n.startswith('alphafold3.model.network.fused_triangle') for n in sys.modules)
 '''], check=True)
 
@@ -116,7 +116,7 @@ def test_adapter_real_kernels_and_parameter_compatibility(monkeypatch, channels,
     np.testing.assert_array_equal(result[:49, :49], fused.apply(params, altered, mask)[:49, :49].astype(jnp.float32))
     if variant.startswith('att'):
         # The other supported execution path exercises the same adapter/layout.
-        tokcore = transformed(variant, config(attention='tokamax'))
+        tokcore = transformed(variant, config(attention='pallas_tokamax_core'))
         result2 = tokcore.apply(params, x, mask).astype(jnp.float32)
         assert np.linalg.norm(np.asarray(result2[:49, :49])-e)/np.linalg.norm(e) < .035
     # A float32 activation must execute the unchanged body.

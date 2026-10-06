@@ -219,7 +219,7 @@ class GridSelfAttention(hk.Module):
     assert len(act.shape) == 3
     assert len(pair_mask.shape) == 2
 
-    if self.global_config.fused_triangle_attention != 'off':
+    if self.global_config.triangle_attention_implementation != 'default':
       from alphafold3.model.network import fused_triangle
       fused = fused_triangle.grid_self_attention(
           act, pair_mask, self.config, self.global_config,
@@ -284,7 +284,7 @@ class TriangleMultiplication(hk.Module):
     Returns:
       Outputs, should have same shape/type as output_act
     """
-    if self.global_config.fused_triangle_multiplication:
+    if self.global_config.triangle_multiplication_implementation != 'default':
       from alphafold3.model.network import fused_triangle
       fused = fused_triangle.triangle_multiplication(
           act, mask, self.config, self.global_config

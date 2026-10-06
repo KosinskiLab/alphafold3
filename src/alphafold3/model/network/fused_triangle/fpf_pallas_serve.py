@@ -62,7 +62,7 @@ def card_policy(compute_capability, memory_gib):
     if memory < 12:
         return DevicePolicy(cc, memory, reason='memory_budget_below_12_gib')
     tiles = 'safe' if cc in ('8.6', '8.9') else '8.0' if cc == '8.0' else '9.0'
-    attention = 'tokamax' if tiles == 'safe' else 'pallas'
+    attention = 'pallas_tokamax_core' if tiles == 'safe' else 'pallas'
     # Stay within the layer-tested range and leave attention chunked near
     # the full model's observed capacity. These limits can be raised by data.
     trimul_max = 5120 if cc in ('9.0', '12.0') else 3584
@@ -90,9 +90,9 @@ def select(config, kind, shape, dtype, mask_shape, *, num_head=4):
     """
     if kind not in ('trimul', 'attention'):
         raise ValueError(f'Unknown triangle operation: {kind}')
-    requested = (config.fused_triangle_multiplication if kind == 'trimul'
-                 else config.fused_triangle_attention != 'off')
-    if not requested:
+    requested = (config.triangle_multiplication_implementation if kind == 'trimul'
+                 else config.triangle_attention_implementation)
+    if requested == 'default':
         return 'stock', 'off'
     policy = policy_from_config(config)
     if not policy.enabled:
@@ -108,16 +108,21 @@ def select(config, kind, shape, dtype, mask_shape, *, num_head=4):
     if c not in (64, 128) or n % 64:
         return 'stock', 'unvalidated_shape'
     if kind == 'trimul':
-        return ('pallas', '') if n <= policy.trimul_max_n else ('stock', 'size_limit')
+        if n > policy.trimul_max_n:
+            return 'stock', 'size_limit'
+        if requested != 'pallas':
+            raise ValueError(
+                f'Unknown triangle multiplication implementation: {requested}')
+        return 'pallas', ''
     if num_head != 4:
         return 'stock', 'unvalidated_heads'
     if n > policy.attention_max_n:
         return 'stock', 'size_limit'
-    backend = config.fused_triangle_attention
+    backend = requested
     if backend == 'auto':
         backend = policy.attention
-    if backend not in ('pallas', 'tokamax'):
-        raise ValueError(f'Unknown fused triangle attention backend: {backend}')
+    if backend not in ('pallas', 'pallas_tokamax_core'):
+        raise ValueError(f'Unknown triangle attention implementation: {backend}')
     return backend, ''
 
 
