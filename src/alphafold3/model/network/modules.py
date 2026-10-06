@@ -219,6 +219,15 @@ class GridSelfAttention(hk.Module):
     assert len(act.shape) == 3
     assert len(pair_mask.shape) == 2
 
+    if self.global_config.fused_triangle_attention != 'off':
+      from alphafold3.model.network import fused_triangle
+      fused = fused_triangle.grid_self_attention(
+          act, pair_mask, self.config, self.global_config,
+          transpose=self.transpose,
+      )
+      if fused is not None:
+        return fused
+
     pair_mask = jnp.swapaxes(pair_mask, -1, -2)
     act = hm.LayerNorm(name='act_norm')(act)
 
@@ -275,6 +284,14 @@ class TriangleMultiplication(hk.Module):
     Returns:
       Outputs, should have same shape/type as output_act
     """
+    if self.global_config.fused_triangle_multiplication:
+      from alphafold3.model.network import fused_triangle
+      fused = fused_triangle.triangle_multiplication(
+          act, mask, self.config, self.global_config
+      )
+      if fused is not None:
+        return fused
+
     mask = mask[None, ...]
     num_channels = act.shape[-1]
     equation = {
