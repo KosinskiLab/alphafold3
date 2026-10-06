@@ -40,6 +40,6 @@ run the original body. The measured architectures are 8.0, 8.6, 8.9, 9.0 and
 12.0; 12.0 uses the measured 9.0 tile table. Attention has a lower size limit
 than multiplication because it removes row chunking.
 
-`tests/test_fused_triangle.py` checks parameter compatibility, nonzero-output
-parity, padding, determinism, lazy imports and fallbacks on CPU with Pallas
-interpret mode.
+`src/alphafold3/model/network/fused_triangle_test.py` checks dispatch,
+parameter compatibility, nonzero-output parity, padding, determinism, lazy
+imports and fallbacks on CPU with Pallas interpret mode.
