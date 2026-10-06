@@ -3,9 +3,13 @@
 
 def triangle_multiplication(act, mask, config, global_config):
     """Return the fused output, or None to keep the original module body."""
-    from .fpf_pallas_serve import policy_from_config, select, trimul_cfg
-    backend, _ = select(global_config, 'trimul', act.shape, act.dtype, mask.shape)
-    if backend == 'stock' or not config.use_glu_kernel or mask.dtype != act.dtype:
+    from alphafold3.jax.fused_triangle import dispatch
+    policy = dispatch.device_policy(global_config.fused_triangle_compute_capability,
+                                    global_config.fused_triangle_memory_gib)
+    backend, _ = dispatch.select_implementation(
+        'triangle_multiplication', global_config.triangle_multiplication_implementation,
+        policy, act.shape, act.dtype, mask.shape)
+    if backend == 'default' or not config.use_glu_kernel or mask.dtype != act.dtype:
         return None
     if config.equation not in ('ikc,jkc->ijc', 'kjc,kic->ijc'):
         return None
@@ -31,15 +35,18 @@ def triangle_multiplication(act, mask, config, global_config):
                   ln_c_offset=o_c, w_proj=wp, w_gate=wg, w_out=wo, w_gl=wgl)
     return trimul_pallas.triangle_multiplication_fused(
         act, mask, params, equation=config.equation,
-        cfg=trimul_cfg(act.shape[0], policy_from_config(global_config)))
+        cfg=dispatch.triangle_multiplication_tiles(policy))
 
 
 def grid_self_attention(act, mask, config, global_config, *, transpose):
     """Return DeepMind-convention fused attention, or None for stock."""
-    from .fpf_pallas_serve import attn_cfg, policy_from_config, select
-    backend, _ = select(global_config, 'attention', act.shape, act.dtype,
-                        mask.shape, num_head=config.num_head)
-    if backend == 'stock' or mask.dtype != act.dtype:
+    from alphafold3.jax.fused_triangle import dispatch
+    policy = dispatch.device_policy(global_config.fused_triangle_compute_capability,
+                                    global_config.fused_triangle_memory_gib)
+    backend, _ = dispatch.select_implementation(
+        'triangle_attention', global_config.triangle_attention_implementation,
+        policy, act.shape, act.dtype, mask.shape, num_head=config.num_head)
+    if backend == 'default' or mask.dtype != act.dtype:
         return None
     import haiku as hk
     if hk.running_init():
@@ -67,7 +74,7 @@ def grid_self_attention(act, mask, config, global_config, *, transpose):
         'output_projection': {'weights': param('output_projection', (h*d, c))},
     }
     kp = kernel.attn_params_from_haiku(params)
-    tiles = attn_cfg(n, policy_from_config(global_config))
+    tiles = dispatch.triangle_attention_tiles(n, policy)
     if backend == 'pallas':
         return kernel.grid_self_attention_fused(
             act, mask, kp, transpose=transpose,

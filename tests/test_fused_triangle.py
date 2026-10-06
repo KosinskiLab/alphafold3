@@ -11,7 +11,7 @@ import pytest
 from alphafold3.model import model_config
 from alphafold3.model.components import utils
 from alphafold3.model.network import modules
-from alphafold3.model.network.fused_triangle import fpf_pallas_serve as dispatch
+from alphafold3.jax.fused_triangle import dispatch
 
 
 @pytest.fixture(autouse=True, scope='module')
@@ -38,17 +38,16 @@ def config(on=True, cc='9.0', memory=76, attention='auto'):
     ('12.0', 15, '9.0', 'pallas', 768),
 ])
 def test_device_and_memory_dispatch(cc, memory, tiles, backend, limit):
-    cfg = config(cc=cc, memory=memory)
-    policy = dispatch.policy_from_config(cfg)
-    assert (policy.tiles, policy.attention, policy.attention_max_n) == (tiles, backend, limit)
-    assert dispatch.select(cfg, 'attention', (limit, limit, 128), 'bfloat16', (limit, limit)) == (backend, '')
+    policy = dispatch.device_policy(cc, memory)
+    assert (policy.tile_table, policy.attention_implementation, policy.attention_max_tokens) == (tiles, backend, limit)
+    assert dispatch.select_implementation('triangle_attention', 'auto', policy, (limit, limit, 128), 'bfloat16', (limit, limit)) == (backend, '')
     n = limit + 64
-    assert dispatch.select(cfg, 'attention', (n, n, 128), 'bfloat16', (n, n))[1] == 'size_limit'
+    assert dispatch.select_implementation('triangle_attention', 'auto', policy, (n, n, 128), 'bfloat16', (n, n))[1] == 'size_limit'
 
 
 @pytest.mark.parametrize('cc,memory', [('7.0', 32), ('10.0', 180), ('13.0', 96), ('', 80), ('9.0', 0), ('9.0', float('nan'))])
 def test_unknown_devices_and_budgets_fall_back(cc, memory):
-    assert not dispatch.card_policy(cc, memory).enabled
+    assert not dispatch.device_policy(cc, memory).enabled
 
 
 @pytest.mark.parametrize('shape,dtype,mask,heads,reason', [
@@ -60,7 +59,8 @@ def test_unknown_devices_and_budgets_fall_back(cc, memory):
     ((64, 64, 128), 'bfloat16', (64, 64), 8, 'unvalidated_heads'),
 ])
 def test_fallbacks(shape, dtype, mask, heads, reason):
-    assert dispatch.select(config(), 'attention', shape, dtype, mask, num_head=heads) == ('stock', reason)
+    policy = dispatch.device_policy('9.0', 76)
+    assert dispatch.select_implementation('triangle_attention', 'auto', policy, shape, dtype, mask, num_head=heads) == ('default', reason)
 
 
 def test_off_imports_no_fused_package():
