@@ -63,13 +63,15 @@ def test_fallbacks(shape, dtype, mask, heads, reason):
     assert dispatch.select_implementation('triangle_attention', 'auto', policy, shape, dtype, mask, num_head=heads) == ('default', reason)
 
 
-def test_off_imports_no_fused_package():
+def test_default_config_does_not_import_kernels():
     subprocess.run([sys.executable, '-c', '''
 import sys
 from alphafold3.model.network import modules
 from alphafold3.model import model_config
 assert model_config.GlobalConfig().triangle_attention_implementation == 'default'
-assert not any(n.startswith('alphafold3.model.network.fused_triangle') for n in sys.modules)
+assert model_config.GlobalConfig().triangle_multiplication_implementation == 'default'
+assert 'alphafold3.jax.fused_triangle.trimul_pallas' not in sys.modules
+assert 'alphafold3.jax.fused_triangle.triattn_pallas' not in sys.modules
 '''], check=True)
 
 
