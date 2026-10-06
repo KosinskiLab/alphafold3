@@ -19,7 +19,8 @@ a standalone subset of the bf16 tile tables and device/shape dispatch, without
 Haiku parameters; module hooks are guarded by off-by-default `GlobalConfig`
 fields. Initialisation always uses the original module body.
 
-Set `fused_triangle_multiplication=True`, `fused_triangle_attention='auto'`,
+Set `triangle_multiplication_implementation='pallas'`,
+`triangle_attention_implementation='auto'`,
 `fused_triangle_compute_capability` and `fused_triangle_memory_gib` (the JAX
 allocator budget) to opt in. AlphaPulldown fills these after a device smoke test.
 Unsupported layers return to the original body. The measured architectures are
