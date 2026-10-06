@@ -33,6 +33,11 @@ class GlobalConfig(base_config.BaseConfig):
 
   bfloat16: Literal['all', 'none', 'intermediate'] = 'all'
   final_init: Literal['zeros', 'linear'] = 'zeros'
+  # Optional inference-only triangle kernels. Off preserves the original path.
+  fused_triangle_multiplication: bool = False
+  fused_triangle_attention: Literal['off', 'auto', 'pallas', 'tokamax'] = 'off'
+  fused_triangle_compute_capability: str = ''
+  fused_triangle_memory_gib: float = 0.0
   pair_attention_chunk_size: Sequence[_Shape2DType] = ((1536, 128), (None, 32))
   pair_transition_shard_spec: Sequence[_Shape2DType] = (
       (2048, None),
