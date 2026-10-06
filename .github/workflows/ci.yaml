@@ -42,3 +42,8 @@ jobs:
 
     - name: Run CPU-only tests
       run: uv run python run_alphafold_data_test.py
+
+    - name: Run fused triangle tests (CPU, Pallas interpret mode)
+      run: uv run python src/alphafold3/model/network/fused_triangle_test.py
+      env:
+        JAX_PLATFORMS: cpu
