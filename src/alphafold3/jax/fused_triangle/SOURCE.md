@@ -8,12 +8,14 @@
   - `common/opt_core/opt_core/kernels/fpf_pallas/NOTICE`
   - `common/opt_core/opt_core/kernels/fpf_pallas_serve.py`
 
-Later commits on this branch adapt them for this fork; `git log -p -- src/alphafold3/model/network/fused_triangle/` shows every
+Later commits on this branch adapt them for this fork; `git log -p --follow -- <file>` shows every
 change against the original files.
 
-The integration keeps both kernel files unchanged. `fpf_pallas_serve.py` is now
+The integration keeps both kernel files unchanged, here in
+`src/alphafold3/jax/fused_triangle/`. `fpf_pallas_serve.py`, in
+`src/alphafold3/model/network/fused_triangle/`, is now
 a standalone subset of the bf16 tile tables and device/shape dispatch, without
-`opt_core` imports or runtime class replacement. `__init__.py` adapts the existing
+`opt_core` imports or runtime class replacement. `__init__.py` there adapts the existing
 Haiku parameters; module hooks are guarded by off-by-default `GlobalConfig`
 fields. Initialisation always uses the original module body.
 

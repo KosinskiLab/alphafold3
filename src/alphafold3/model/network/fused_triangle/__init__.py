@@ -14,7 +14,7 @@ def triangle_multiplication(act, mask, config, global_config):
         return None  # Use stock initialisers, parameter creation order and RNG.
     import jax.numpy as jnp
     from alphafold3.model.components import haiku_modules as hm
-    from . import trimul_pallas
+    from alphafold3.jax.fused_triangle import trimul_pallas
 
     c = act.shape[-1]
     def norm(name):
@@ -45,7 +45,7 @@ def grid_self_attention(act, mask, config, global_config, *, transpose):
     if hk.running_init():
         return None
     import jax.numpy as jnp
-    from . import triattn_pallas as kernel
+    from alphafold3.jax.fused_triangle import triattn_pallas as kernel
 
     n, _, c = act.shape
     h, d = config.num_head, c // config.num_head
