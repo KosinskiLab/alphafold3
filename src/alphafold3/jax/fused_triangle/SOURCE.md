@@ -36,9 +36,10 @@ body, and initialisation always runs the original body.
 To opt in, set `triangle_multiplication_implementation='pallas'`,
 `triangle_attention_implementation='auto'`, `fused_triangle_compute_capability`
 and `fused_triangle_memory_gib` (the JAX allocator budget). Unsupported layers
-run the original body. The measured architectures are 8.0, 8.6, 8.9, 9.0 and
-12.0; 12.0 uses the measured 9.0 tile table. Attention has a lower size limit
-than multiplication because it removes row chunking.
+run the original body and log a warning, once per reason. The measured
+architectures are 8.0, 8.6, 8.9, 9.0 and 12.0; 12.0 uses the measured 9.0 tile
+table. Attention has a lower size limit than multiplication because it removes
+row chunking.
 
 `src/alphafold3/model/network/fused_triangle_test.py` checks dispatch,
 parameter compatibility, nonzero-output parity, padding, determinism, lazy

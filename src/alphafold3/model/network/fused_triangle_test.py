@@ -33,6 +33,7 @@ from absl.testing import parameterized
 from alphafold3.jax.fused_triangle import dispatch
 from alphafold3.model import model_config
 from alphafold3.model.components import utils
+from alphafold3.model.network import fused_triangle
 from alphafold3.model.network import modules
 import haiku as hk
 import jax
@@ -59,14 +60,17 @@ def _interpret_pallas_call(*args, **kwargs):
 
 
 def _global_config(
-    *, fused: bool = True, attention: str = 'auto'
+    *,
+    fused: bool = True,
+    attention: str = 'auto',
+    compute_capability: str = '9.0',
 ) -> model_config.GlobalConfig:
   return model_config.GlobalConfig(
       final_init='linear',
       flash_attention_implementation='xla',
       triangle_multiplication_implementation='pallas' if fused else 'default',
       triangle_attention_implementation=attention if fused else 'default',
-      fused_triangle_compute_capability='9.0',
+      fused_triangle_compute_capability=compute_capability,
       fused_triangle_memory_gib=76,
   )
 
@@ -140,6 +144,26 @@ def _fused_output(variant: str, num_channels: int) -> np.ndarray:
 
 def _relative_error(actual: np.ndarray, expected: np.ndarray) -> float:
   return np.linalg.norm(actual - expected) / np.linalg.norm(expected)
+
+
+def _call_adapter(
+    operation: str,
+    act: jax.Array,
+    mask: jax.Array,
+    global_config: model_config.GlobalConfig,
+) -> jax.Array | None:
+  """Calls an adapter outside Haiku; only valid when it falls back."""
+  if operation == 'multiplication':
+    return fused_triangle.triangle_multiplication(
+        act,
+        mask,
+        equation='ikc,jkc->ijc',
+        use_glu_kernel=True,
+        global_config=global_config,
+    )
+  return fused_triangle.grid_self_attention(
+      act, mask, num_head=4, transpose=False, global_config=global_config
+  )
 
 
 class DispatchTest(parameterized.TestCase):
@@ -351,6 +375,75 @@ class AdapterTest(parameterized.TestCase):
     )
     output = _layer(variant, _global_config()).apply(params, act, mask)
     np.testing.assert_array_equal(output, expected)
+
+
+class FallbackWarningTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    fused_triangle._logged_fallbacks.clear()
+
+  @parameterized.named_parameters(
+      (
+          'multiplication_float32',
+          'multiplication',
+          jnp.float32,
+          jnp.float32,
+          '9.0',
+          'dtype_not_bfloat16',
+      ),
+      (
+          'multiplication_mask_dtype',
+          'multiplication',
+          jnp.bfloat16,
+          jnp.float32,
+          '9.0',
+          'mask_dtype_mismatch',
+      ),
+      (
+          'attention_float32',
+          'attention',
+          jnp.float32,
+          jnp.float32,
+          '9.0',
+          'dtype_not_bfloat16',
+      ),
+      (
+          'attention_unmeasured_device',
+          'attention',
+          jnp.bfloat16,
+          jnp.bfloat16,
+          '7.0',
+          'unvalidated_compute_capability',
+      ),
+  )
+  def test_fallback_warns_once(
+      self, operation, act_dtype, mask_dtype, compute_capability, reason
+  ):
+    _, act, mask = _inputs(64)
+    act, mask = act.astype(act_dtype), mask.astype(mask_dtype)
+    global_config = _global_config(compute_capability=compute_capability)
+    with self.assertLogs(logger='absl', level='WARNING') as logs:
+      for _ in range(2):
+        self.assertIsNone(_call_adapter(operation, act, mask, global_config))
+    self.assertLen(logs.records, 1)
+    self.assertIn(f'({reason})', logs.output[0])
+
+  @parameterized.parameters('multiplication', 'attention')
+  def test_default_implementation_does_not_warn(self, operation):
+    _, act, mask = _inputs(64)
+    act, mask = act.astype(jnp.float32), mask.astype(jnp.float32)
+    with self.assertNoLogs(logger='absl', level='WARNING'):
+      self.assertIsNone(
+          _call_adapter(operation, act, mask, _global_config(fused=False))
+      )
+
+  @parameterized.parameters(*_VARIANTS)
+  def test_selected_kernel_does_not_warn(self, variant):
+    _, act, mask = _inputs(64)
+    layer = _layer(variant, _global_config())
+    with self.assertNoLogs(logger='absl', level='WARNING'):
+      jax.make_jaxpr(layer.apply)(_default_params(variant, 64), act, mask)
 
 
 if __name__ == '__main__':

@@ -23,10 +23,13 @@ The functions here run the kernels in alphafold3.jax.fused_triangle on the
 parameters that TriangleMultiplication and GridSelfAttention create. They
 return None whenever the original module body must run instead: during
 initialisation, so that parameters are created exactly as before, and for every
-layer that dispatch does not select a kernel for. The kernel modules import the
-Pallas Triton backend, so they are imported only once a kernel is selected.
+layer that dispatch does not select a kernel for. A layer that falls back
+although a fused implementation was requested logs a warning, once per reason.
+The kernel modules import the Pallas Triton backend, so they are imported only
+once a kernel is selected.
 """
 
+from absl import logging
 from alphafold3.jax.fused_triangle import dispatch
 from alphafold3.model import model_config
 from alphafold3.model.components import haiku_modules as hm
@@ -36,6 +39,31 @@ import jax.numpy as jnp
 import tokamax
 
 _SUPPORTED_EQUATIONS = ('ikc,jkc->ijc', 'kjc,kic->ijc')
+
+# Fallbacks already logged, as (operation, requested implementation, reason).
+_logged_fallbacks: set[tuple[str, str, str]] = set()
+
+
+def _log_fallback(
+    operation: dispatch.Operation,
+    requested: str,
+    reason: str,
+    shape: tuple[int, ...],
+) -> None:
+  """Warns, once per reason, that a requested implementation is not used."""
+  key = (operation, requested, reason)
+  if requested == 'default' or key in _logged_fallbacks:
+    return
+  _logged_fallbacks.add(key)
+  logging.warning(
+      '%s_implementation=%r was requested, but a layer with activations of'
+      ' shape %s runs the default implementation (%s). Later layers that fall'
+      ' back for the same reason are not logged.',
+      operation,
+      requested,
+      shape,
+      reason,
+  )
 
 
 def _device_policy(
@@ -88,21 +116,25 @@ def triangle_multiplication(
     The module output, shape [N, N, C], or None if the original module body
     must run instead.
   """
+  requested = global_config.triangle_multiplication_implementation
   policy = _device_policy(global_config)
-  implementation, _ = dispatch.select_implementation(
+  implementation, reason = dispatch.select_implementation(
       'triangle_multiplication',
-      global_config.triangle_multiplication_implementation,
+      requested,
       policy,
       act.shape,
       act.dtype,
       mask.shape,
   )
-  if (
-      implementation == 'default'
-      or not use_glu_kernel
-      or mask.dtype != act.dtype
-      or equation not in _SUPPORTED_EQUATIONS
-  ):
+  if implementation != 'default':
+    if not use_glu_kernel:
+      implementation, reason = 'default', 'glu_kernel_disabled'
+    elif mask.dtype != act.dtype:
+      implementation, reason = 'default', 'mask_dtype_mismatch'
+    elif equation not in _SUPPORTED_EQUATIONS:
+      implementation, reason = 'default', 'unsupported_equation'
+  if implementation == 'default':
+    _log_fallback('triangle_multiplication', requested, reason, act.shape)
     return None
   if hk.running_init():
     # Create the parameters with the original initialisers, order and RNG.
@@ -174,17 +206,21 @@ def grid_self_attention(
     The module output, shape [N, N, C], or None if the original module body
     must run instead.
   """
+  requested = global_config.triangle_attention_implementation
   policy = _device_policy(global_config)
-  implementation, _ = dispatch.select_implementation(
+  implementation, reason = dispatch.select_implementation(
       'triangle_attention',
-      global_config.triangle_attention_implementation,
+      requested,
       policy,
       act.shape,
       act.dtype,
       pair_mask.shape,
       num_head=num_head,
   )
-  if implementation == 'default' or pair_mask.dtype != act.dtype:
+  if implementation != 'default' and pair_mask.dtype != act.dtype:
+    implementation, reason = 'default', 'mask_dtype_mismatch'
+  if implementation == 'default':
+    _log_fallback('triangle_attention', requested, reason, act.shape)
     return None
   if hk.running_init():
     # Create the parameters with the original initialisers, order and RNG.
