@@ -42,3 +42,19 @@ class GlobalConfig(base_config.BaseConfig):
   flash_attention_implementation: tokamax.DotProductAttentionImplementation = (
       'triton'
   )
+  # Inference-only fused Pallas kernels for the triangle modules. 'default'
+  # runs the original module body. 'pallas_tokamax_core' wraps the attention
+  # core of flash_attention_implementation in the Pallas prologue and epilogue;
+  # 'auto' picks a triangle attention implementation for the device. Layers
+  # that the kernels do not support run the default implementation.
+  triangle_multiplication_implementation: Literal['default', 'pallas'] = (
+      'default'
+  )
+  triangle_attention_implementation: Literal[
+      'default', 'pallas', 'pallas_tokamax_core', 'auto'
+  ] = 'default'
+  # Device that the fused triangle kernels dispatch for: CUDA compute
+  # capability (e.g. '9.0') and JAX allocator budget in GiB. Unknown or
+  # unmeasured devices run the default implementation.
+  fused_triangle_compute_capability: str = ''
+  fused_triangle_memory_gib: float = 0.0
