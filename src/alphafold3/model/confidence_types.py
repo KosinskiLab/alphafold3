@@ -191,7 +191,13 @@ class StructureConfidenceSummary:
       cls, inference_result: model.InferenceResult
   ) -> Self:
     """Returns a new instance based on a given inference result."""
-    chain_ids = [str(c) for c in inference_result.metadata['token_chain_ids']]  # pyrefly: ignore[not-iterable]
+    # The chain-level arrays are indexed by unique asym ID in ascending order
+    # (see confidences.chain_pairwise_predicted_tm_scores). Asym IDs are
+    # assigned to chains in order of their first token (see
+    # features._compute_asym_entity_and_sym_id), so the per-token chain IDs
+    # deduplicated in order of first occurrence follow the same chain order.
+    token_chain_ids = inference_result.metadata['token_chain_ids']
+    chain_ids = list(dict.fromkeys(str(c) for c in token_chain_ids))  # pyrefly: ignore[not-iterable]
     return cls(
         ptm=float(inference_result.metadata['ptm']),
         iptm=float(inference_result.metadata['iptm']),

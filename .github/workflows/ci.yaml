@@ -47,3 +47,8 @@ jobs:
       run: uv run python src/alphafold3/model/network/fused_triangle_test.py
       env:
         JAX_PLATFORMS: cpu
+
+    - name: Run confidence types tests (CPU)
+      run: uv run python src/alphafold3/model/confidence_types_test.py
+      env:
+        JAX_PLATFORMS: cpu
