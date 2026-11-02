@@ -281,6 +281,13 @@ _NHMMER_MAX_PARALLEL_SHARDS = flags.DEFINE_integer(
     ' database is sharded.',
     lower_bound=1,
 )
+_HMMSEARCH_N_CPU = flags.DEFINE_integer(
+    'hmmsearch_n_cpu',
+    _num_cpus_for_msa_tools(),
+    'Number of CPUs to use for Hmmsearch. Defaults to min(cpu_count, 8). Going'
+    ' above 8 CPUs provides very little additional speedup.',
+    lower_bound=0,
+)
 
 # Data pipeline configuration.
 _RESOLVE_MSA_OVERLAPS = flags.DEFINE_bool(
@@ -315,7 +322,9 @@ _FIX_STANDALONE_GLYCANS = flags.DEFINE_bool(
     'AlphaFold 3 model training and evaluation filtered out leaving atoms from'
     ' glycan ligands even if they were not bonded to anything ("standalone"'
     ' glycans). Setting this flag to True fixes this undesirable behavior, but'
-    ' moves away from the regime where AlphaFold 3 was trained and evaluated.',
+    ' moves away from the regime where AlphaFold 3 was trained and evaluated.'
+    ' It is recommended to set this flag to True when using the AF3-LA'
+    ' parameters.',
 )
 
 # JAX inference performance tuning.
@@ -349,8 +358,8 @@ _JAX_BACKEND = flags.DEFINE_enum_class(
 _BUCKETS = flags.DEFINE_list(
     'buckets',
     # pyformat: disable
-    ['256', '512', '768', '1024', '1280', '1536', '2048', '2560', '3072',
-     '3584', '4096', '4608', '5120'],
+    ['128', '256', '384', '512', '768', '1024', '1280', '1536', '2048', '2560',
+     '3072', '3584', '4096', '4608', '5120'],
     # pyformat: enable
     'Strictly increasing order of token sizes for which to cache compilations.'
     ' For any input with more tokens than the largest bucket size, a new bucket'
@@ -410,7 +419,8 @@ _SAVE_DISTOGRAM = flags.DEFINE_bool(
 _SAVE_TERMS_OF_USE = flags.DEFINE_bool(
     'save_terms_of_use',
     True,
-    'Whether to save the terms of use as an MD file in the output directory.',
+    'Whether to save the terms of use as an MD file in the output directory'
+    ' and add the license to the output mmCIF file.',
 )
 _FORCE_OUTPUT_DIR = flags.DEFINE_bool(
     'force_output_dir',
@@ -679,6 +689,7 @@ def write_outputs(
           output_dir=sample_dir,
           name=f'{job_name}_seed-{seed}_sample-{sample_idx}',
           compress=compress_large_output_files,
+          keep_license=save_terms_of_use,
       )
       ranking_score = float(result.metadata['ranking_score'])
       ranking_scores.append((seed, sample_idx, ranking_score))
@@ -711,6 +722,7 @@ def write_outputs(
         terms_of_use=output_terms if save_terms_of_use else None,
         name=job_name,
         compress=compress_large_output_files,
+        keep_license=save_terms_of_use,
     )
     # Save csv of ranking scores with seeds and sample indices, to allow easier
     # comparison of ranking scores across different runs.
@@ -833,7 +845,8 @@ def process_fold_input(
       output directory instead if the existing one is non-empty.
     compress_large_output_files: If True, compress large output files (mmCIF and
       confidences JSON) using zstandard.
-    save_terms_of_use: If True, write the terms of use to the output directory.
+    save_terms_of_use: If True, write the terms of use to the output directory
+      and add the license to the output mmCIF file.
 
   Returns:
     The processed fold input, or the inference results for each seed.
@@ -904,7 +917,7 @@ def main(_):
         'jax_compilation_cache_dir', _JAX_COMPILATION_CACHE_DIR.value
     )
 
-  if _JSON_PATH.value is None == _INPUT_DIR.value is None:
+  if (_JSON_PATH.value is None) == (_INPUT_DIR.value is None):
     raise ValueError(
         'Exactly one of --json_path or --input_dir must be specified.'
     )
@@ -945,9 +958,14 @@ def main(_):
     elif _JAX_BACKEND.value == JaxBackend.GPU:
       gpu_devices = jax.local_devices(backend='gpu')
       if gpu_devices:
-        compute_capability = float(
-            gpu_devices[_GPU_DEVICE.value].compute_capability
-        )
+        compute_capability = gpu_devices[_GPU_DEVICE.value].compute_capability
+        if compute_capability.startswith('gfx'):
+          raise NotImplementedError(
+              f'Detected AMD GPU {gpu_devices[_GPU_DEVICE.value].device_kind} '
+              ' which is not currently supported.'
+          )
+        # We now assume we have an NVIDIA GPU with a numeric compute capability.
+        compute_capability = float(compute_capability)
         if compute_capability < 6.0:
           raise ValueError(
               'AlphaFold 3 requires at least GPU compute capability 6.0 (see'
@@ -1017,6 +1035,7 @@ def main(_):
         jackhmmer_max_parallel_shards=_JACKHMMER_MAX_PARALLEL_SHARDS.value,
         nhmmer_n_cpu=_NHMMER_N_CPU.value,
         nhmmer_max_parallel_shards=_NHMMER_MAX_PARALLEL_SHARDS.value,
+        hmmsearch_n_cpu=_HMMSEARCH_N_CPU.value,
         max_template_date=max_template_date,
     )
   else:
@@ -1025,6 +1044,9 @@ def main(_):
   if _RUN_INFERENCE.value:
     devices = jax.local_devices(backend=_JAX_BACKEND.value)
     device = devices[_GPU_DEVICE.value]
+    # Tokamax picks kernels at trace time from JAX's default device, not from
+    # the jit target, so make the selected device the default.
+    jax.config.update('jax_default_device', device)
     print(
         f'Found local {str(_JAX_BACKEND.value).upper()} devices: {devices},'
         f' using device {_GPU_DEVICE.value}: {device}'
